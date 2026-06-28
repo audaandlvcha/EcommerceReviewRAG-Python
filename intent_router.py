@@ -12,8 +12,7 @@
 """
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_ollama import ChatOllama
-from config import LLM_MODEL
+from config import get_llm
 
 ROUTER_PROMPT = ChatPromptTemplate.from_messages([
     ("system", """判断以下用户问题的复杂度，只回复一个词。
@@ -32,7 +31,7 @@ class IntentRouter:
     """查询复杂度路由器"""
 
     def __init__(self, llm=None):
-        self.llm = llm or ChatOllama(model=LLM_MODEL, temperature=0)
+        self.llm = llm or get_llm(temperature=0)
 
     def classify(self, question: str) -> str:
         """

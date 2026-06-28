@@ -14,7 +14,13 @@ Langfuse 全链路追踪（v4.x API）
 """
 import os
 from pathlib import Path
-from langfuse.langchain import CallbackHandler
+
+try:
+    from langfuse.langchain import CallbackHandler
+    _HAS_LANGFUSE = True
+except ImportError:
+    _HAS_LANGFUSE = False
+    CallbackHandler = None  # 类型占位，无 langfuse 时优雅降级
 
 # 启动时自动从 .env 加载环境变量
 _ENV_FILE = Path(__file__).parent / ".env"
@@ -29,27 +35,17 @@ if _ENV_FILE.exists():
 
 def get_langfuse_callback(session_id: str = None, tags: list[str] = None) -> CallbackHandler | None:
     """
-    获取 Langfuse callback，如果环境变量没设则优雅降级
-
-    Langfuse 4.x 通过环境变量读取配置：
-      LANGFUSE_PUBLIC_KEY  /  LANGFUSE_SECRET_KEY  /  LANGFUSE_HOST
-
-    参数：
-        session_id: 会话 ID
-        tags:       标签列表
-
-    返回：
-        CallbackHandler 或 None（未配置时）
+    获取 Langfuse callback — 未安装/未配置时静默降级，不影响系统运行
     """
+    if not _HAS_LANGFUSE:
+        return None
+
     public_key = os.getenv("LANGFUSE_PUBLIC_KEY")
     secret_key = os.getenv("LANGFUSE_SECRET_KEY")
 
     if not public_key or not secret_key:
-        print("[Langfuse] 未配置 API key，追踪已跳过")
-        print("  设环境变量后启用: LANGFUSE_PUBLIC_KEY + LANGFUSE_SECRET_KEY")
         return None
 
-    # Langfuse 4.x: CallbackHandler 只接受 public_key，secret_key 从环境变量读
     return CallbackHandler(public_key=public_key)
 
 

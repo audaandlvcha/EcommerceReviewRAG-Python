@@ -8,11 +8,10 @@
 """
 import json
 from pathlib import Path
-from datetime import datetime
-from config import LLM_MODEL
+from datetime import datetime, timedelta
+from config import get_llm
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_ollama import ChatOllama
 
 
 # 追问检测 prompt
@@ -37,11 +36,39 @@ FOLLOWUP_PROMPT = ChatPromptTemplate.from_messages([
 
 
 class ConversationManager:
-    """多轮对话管理器"""
+    """多轮对话管理器（带 TTL 和最大 session 数限制，防内存泄漏）"""
 
-    def __init__(self, max_history: int = 10):
-        self.sessions: dict[str, list[dict]] = {}  # {session_id: [{role, content, time}]}
+    def __init__(self, max_history: int = 10, max_sessions: int = 1000, ttl_minutes: int = 60):
+        self.sessions: dict[str, list[dict]] = {}
         self.max_history = max_history
+        self.max_sessions = max_sessions
+        self.ttl_minutes = ttl_minutes
+        self._last_cleanup = datetime.now()
+
+    def _evict_if_needed(self):
+        """超过最大 session 数时淘汰最旧的，超过 TTL 的也清理"""
+        now = datetime.now()
+        # 每 5 分钟清理一次，避免每次都遍历
+        if (now - self._last_cleanup).total_seconds() < 300 and len(self.sessions) <= self.max_sessions:
+            return
+        self._last_cleanup = now
+
+        cutoff = (now - timedelta(minutes=self.ttl_minutes)).isoformat()
+        stale = [
+            sid for sid, msgs in self.sessions.items()
+            if not msgs or msgs[-1]["time"] < cutoff
+        ]
+        for sid in stale:
+            del self.sessions[sid]
+
+        # 如果还超限，淘汰最旧的
+        if len(self.sessions) > self.max_sessions:
+            sorted_sids = sorted(
+                self.sessions.keys(),
+                key=lambda s: self.sessions[s][-1]["time"] if self.sessions[s] else "0"
+            )
+            for sid in sorted_sids[:len(self.sessions) - self.max_sessions]:
+                del self.sessions[sid]
 
     def add_message(self, session_id: str, role: str, content: str):
         if session_id not in self.sessions:
@@ -55,14 +82,33 @@ class ConversationManager:
         if len(self.sessions[session_id]) > self.max_history:
             self.sessions[session_id] = self.sessions[session_id][-self.max_history:]
 
+        self._evict_if_needed()
+
     def get_last_exchange(self, session_id: str) -> tuple[str, str] | None:
-        """获取最近一轮问答（用户问题, 系统回答）"""
+        """获取最近一轮完整的问答配对（用户问题, 系统回答）
+
+        按时间顺序找到最后一条 user 消息，确保它后面有一条 assistant 回复
+        （避免用户连发两条消息时错误配对）
+        """
         history = self.sessions.get(session_id, [])
-        user_msgs = [m for m in history if m["role"] == "user"]
-        assistant_msgs = [m for m in history if m["role"] == "assistant"]
-        if user_msgs and assistant_msgs:
-            return user_msgs[-1]["content"], assistant_msgs[-1]["content"]
-        return None
+        if not history:
+            return None
+
+        # 从尾部找最后一条 user，确保它后面紧跟 assistant
+        last_user_idx = None
+        for i in range(len(history) - 1, -1, -1):
+            if history[i]["role"] == "user":
+                last_user_idx = i
+                break
+        if last_user_idx is None:
+            return None
+
+        # 找到 user 之后最近的一条 assistant
+        for j in range(last_user_idx + 1, len(history)):
+            if history[j]["role"] == "assistant":
+                return history[last_user_idx]["content"], history[j]["content"]
+
+        return None  # user 发了消息但还没有 assistant 回复
 
     def enrich_query(self, current_question: str, session_id: str,
                      llm=None) -> str:
@@ -81,7 +127,7 @@ class ConversationManager:
         last_q, last_a = last
 
         if llm is None:
-            llm = ChatOllama(model=LLM_MODEL, temperature=0)
+            llm = get_llm(temperature=0)
 
         chain = FOLLOWUP_PROMPT | llm | StrOutputParser()
         result = chain.invoke({

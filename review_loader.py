@@ -7,8 +7,13 @@ from langchain_core.documents import Document
 def load_reviews(filepath: Path | None = None) -> list[dict]:
     if filepath is None:
         filepath = DATA_FILE
-    with open(filepath ,'r', encoding="utf-8") as f:
-        reviews = json.load(f)
+    try:
+        with open(filepath, 'r', encoding="utf-8") as f:
+            reviews = json.load(f)
+    except FileNotFoundError:
+        raise FileNotFoundError(f"评论数据文件不存在: {filepath}，请检查 DATA_FILE 配置")
+    except json.JSONDecodeError as e:
+        raise ValueError(f"评论数据 JSON 格式错误: {filepath}，{e}")
     print(f"加载了 {len(reviews)} 条评论")
     return reviews
 

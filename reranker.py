@@ -14,6 +14,7 @@ class Reranker:
     """Cross-Encoder 重排序器"""
 
     def __init__(self, model_name: str = "cross-encoder/ms-marco-MiniLM-L-2-v2"):
+        """轻量精排（80MB，秒下）。URL 编码修好后中文检索也能用"""
         self.model = CrossEncoder(model_name)
 
     def rerank(self, query: str, docs: list, top_k: int = 5) -> list:

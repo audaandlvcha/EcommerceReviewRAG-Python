@@ -10,8 +10,7 @@ RAG 全链路 —— 把 Day 1+2+3+4 的所有组件串成一条完整的问答�
 """
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_ollama import ChatOllama
-from config import LLM_MODEL, SEARCH_K
+from config import SEARCH_K, get_llm
 
 ANSWER_PROMPT = ChatPromptTemplate.from_messages([
     ("system", """你是电商客服，基于用户真实评论来回答买家的问题。
@@ -36,7 +35,7 @@ class RAGPipeline:
                  router=None, langfuse_callback=None):
         self.vectorstore = vectorstore
         self.bm25_chunks = bm25_chunks
-        self.llm = llm or ChatOllama(model=LLM_MODEL, temperature=0.3)
+        self.llm = llm or get_llm(temperature=0.3)
         self.reranker = reranker
         self.router = router
         self.langfuse_callback = langfuse_callback
@@ -103,11 +102,15 @@ class RAGPipeline:
         )
         chain = ANSWER_PROMPT | self.llm | StrOutputParser()
 
-        answer = chain.invoke(
-            {"context": context, "question": question,
-             "conversation_context": conversation_context}
-        )
-        print(f"[Pipeline] LLM 答案: {answer[:80]}..." if answer else "[Pipeline] ⚠️ LLM 返回空答案")
+        try:
+            answer = chain.invoke(
+                {"context": context, "question": question,
+                 "conversation_context": conversation_context}
+            )
+            print(f"[Pipeline] LLM 答案: {answer[:80]}..." if answer else "[Pipeline] ⚠️ LLM 返回空答案")
+        except Exception as e:
+            print(f"[Pipeline] ❌ LLM 调用失败: {e}")
+            answer = f"抱歉，AI 服务暂时不可用（{str(e)[:100]}），请稍后重试。"
 
         return answer, final_docs
 

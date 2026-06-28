@@ -15,8 +15,7 @@
 """
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_ollama import ChatOllama
-from config import LLM_MODEL, SEARCH_K
+from config import SEARCH_K, get_llm
 
 MULTI_QUERY_PROMPT = ChatPromptTemplate.from_messages([
     ("system", """你是电商评论搜索助手。用户问了一个关于手机的问题，你需要
@@ -39,7 +38,7 @@ MULTI_QUERY_PROMPT = ChatPromptTemplate.from_messages([
 def generate_multi_queries(question: str, llm=None, n: int = 3) -> list[str]:
     """LLM 把问题重写成 N 个不同角度的查询"""
     if llm is None:
-        llm = ChatOllama(model=LLM_MODEL, temperature=0.3)
+        llm = get_llm(temperature=0.3)
 
     chain = MULTI_QUERY_PROMPT | llm | StrOutputParser()
     result = chain.invoke({"question": question})
@@ -62,7 +61,7 @@ def multi_query_retrieve(question: str, vectorstore, llm=None, n: int = 3, k: in
     4. 返回去重后的文档列表
     """
     if llm is None:
-        llm = ChatOllama(model=LLM_MODEL, temperature=0.3)
+        llm = get_llm(temperature=0.3)
 
     queries = generate_multi_queries(question, llm, n)
     all_queries = [question] + queries

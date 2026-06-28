@@ -1,12 +1,11 @@
 """ChromaDB 向量库 —— 建库 + 检索"""
-from langchain_ollama import OllamaEmbeddings
 from langchain_chroma import Chroma
-from config import EMBED_MODEL, CHROMA_DIR, SEARCH_K
+from config import CHROMA_DIR, SEARCH_K, get_embeddings
 from review_loader import load_reviews, build_opinion_chunks
 
 def build_vectorstore(chunks, collection_name: str = "phone_reviews"):
     print(f"--- 开始建向量库（{len(chunks)} 个观点块）---")
-    embeddings = OllamaEmbeddings(model=EMBED_MODEL)
+    embeddings = get_embeddings()
     vectorstore = Chroma(
         persist_directory=str(CHROMA_DIR),
         embedding_function=embeddings,
@@ -22,7 +21,7 @@ def build_vectorstore(chunks, collection_name: str = "phone_reviews"):
 
 
 def load_vectorstore(collection_name: str = "phone_reviews") -> Chroma:
-    embeddings = OllamaEmbeddings(model=EMBED_MODEL)
+    embeddings = get_embeddings()
     vectorstore = Chroma(
         persist_directory=str(CHROMA_DIR),
         embedding_function=embeddings,

@@ -23,11 +23,19 @@ _bm25_chunks = None
 _router = None
 _conversation = None
 _langfuse_cb = None
+_init_lock = asyncio.Lock()
 
 
-def get_pipeline():
+async def get_pipeline():
     global _pipeline, _vectorstore, _bm25_chunks, _router, _conversation, _langfuse_cb
-    if _pipeline is None:
+    if _pipeline is not None:
+        return _pipeline
+
+    async with _init_lock:
+        # 双重检查：拿到锁后再确认一次（防并发创建两套）
+        if _pipeline is not None:
+            return _pipeline
+
         from vector_store import load_vectorstore
         from rag_pipeline import RAGPipeline
         from reranker import Reranker
@@ -51,7 +59,7 @@ def get_pipeline():
             router=_router,
             langfuse_callback=_langfuse_cb
         )
-    return _pipeline
+        return _pipeline
 
 
 @app.post("/api/search")
@@ -62,7 +70,7 @@ async def search(request: Request):
     if not question:
         return {"error": "query 不能为空"}
 
-    pipeline = get_pipeline()
+    pipeline = await get_pipeline()
     conversation = _conversation
 
     # 多轮对话：检测追问 → 增强 query
@@ -94,44 +102,52 @@ async def search(request: Request):
 @app.get("/api/search/stream")
 async def search_stream(query: str = "", session_id: str = ""):
     if not query.strip():
-        return
+        # 返回 SSE 错误事件而不是 None（None 导致 FastAPI 500）
+        async def error_gen():
+            yield f"data: {json.dumps({'type': 'error', 'data': 'query 不能为空'})}\n\n"
+            yield f"data: {json.dumps({'type': 'done'})}\n\n"
+        return StreamingResponse(error_gen(), media_type="text/event-stream")
 
     async def generate():
-        pipeline = get_pipeline()
-        conversation = _conversation
+        try:
+            pipeline = await get_pipeline()
+            conversation = _conversation
 
-        sid = session_id or str(uuid.uuid4())
+            sid = session_id or str(uuid.uuid4())
 
-        # 立即返回状态，防止浏览器超时断开
-        yield f"data: {json.dumps({'type': 'status', 'data': '检索中...'})}\n\n"
+            # 立即返回状态，防止浏览器超时断开
+            yield f"data: {json.dumps({'type': 'status', 'data': '检索中...'})}\n\n"
 
-        # 多轮对话 + 意图路由 + 检索（用线程防止阻塞事件循环）
-        enriched = conversation.enrich_query(query, sid)
-        answer, docs = await asyncio.to_thread(
-            pipeline.query, enriched, True, True, True, SEARCH_K
-        )
+            # 多轮对话 + 意图路由 + 检索（用线程防止阻塞事件循环）
+            enriched = conversation.enrich_query(query, sid)
+            answer, docs = await asyncio.to_thread(
+                pipeline.query, enriched, True, True, True, SEARCH_K  # auto_route=True（第5个位置参数）
+            )
 
-        # 记录对话历史
-        conversation.add_message(sid, "user", query)
-        conversation.add_message(sid, "assistant", answer)
+            # 记录对话历史
+            conversation.add_message(sid, "user", query)
+            conversation.add_message(sid, "assistant", answer)
 
-        # 先发 session_id + 引用
-        yield f"data: {json.dumps({'type': 'meta', 'session_id': sid, 'enriched_query': enriched if enriched != query else None}, ensure_ascii=False)}\n\n"
+            # 先发 session_id + 引用
+            yield f"data: {json.dumps({'type': 'meta', 'session_id': sid, 'enriched_query': enriched if enriched != query else None}, ensure_ascii=False)}\n\n"
 
-        sources = [
-            {
-                "content": doc.page_content,
-                "sentiment": doc.metadata.get("sentiment", ""),
-                "rating": doc.metadata.get("rating", 0),
-            }
-            for doc in docs
-        ]
-        yield f"data: {json.dumps({'type': 'sources', 'data': sources}, ensure_ascii=False)}\n\n"
+            sources = [
+                {
+                    "content": doc.page_content,
+                    "sentiment": doc.metadata.get("sentiment", ""),
+                    "rating": doc.metadata.get("rating", 0),
+                }
+                for doc in docs
+            ]
+            yield f"data: {json.dumps({'type': 'sources', 'data': sources}, ensure_ascii=False)}\n\n"
 
-        for char in answer:
-            yield f"data: {json.dumps({'type': 'token', 'data': char}, ensure_ascii=False)}\n\n"
+            for char in answer:
+                yield f"data: {json.dumps({'type': 'token', 'data': char}, ensure_ascii=False)}\n\n"
 
-        yield f"data: {json.dumps({'type': 'done'})}\n\n"
+            yield f"data: {json.dumps({'type': 'done'})}\n\n"
+        except Exception as e:
+            yield f"data: {json.dumps({'type': 'error', 'data': f'检索异常: {str(e)}'})}\n\n"
+            yield f"data: {json.dumps({'type': 'done'})}\n\n"
 
     return StreamingResponse(generate(), media_type="text/event-stream")
 

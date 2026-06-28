@@ -11,8 +11,7 @@ HyDE 检索器 —— Hypothetical Document Embeddings
 """
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_ollama import ChatOllama, OllamaEmbeddings
-from config import LLM_MODEL, EMBED_MODEL, SEARCH_K
+from config import SEARCH_K, get_llm, get_embeddings
 
 HYDE_PROMPT = ChatPromptTemplate.from_messages([
     ("system", """你是电商评论生成器。用户问了一个关于手机的疑问，你需要
@@ -39,13 +38,13 @@ def hyde_retrieve(question: str, vectorstore, llm=None, k: int = SEARCH_K) -> li
     4. 返回 Top-K 真实评论
     """
     if llm is None:
-        llm = ChatOllama(model=LLM_MODEL, temperature=0.3)
+        llm = get_llm(temperature=0.3)
     #langchain
     chain = HYDE_PROMPT | llm | StrOutputParser()
     hypothetical_review = chain.invoke({"question": question})
     print(f"[HyDE] 假想评论: {hypothetical_review[:80]}...")
 
-    embeddings = OllamaEmbeddings(model=EMBED_MODEL)
+    embeddings = get_embeddings()  # 全局单例，避免每次搜索重新加载 100MB 模型
     hyde_vector = embeddings.embed_query(hypothetical_review)
 
     docs = vectorstore.similarity_search_by_vector(hyde_vector, k=k)
