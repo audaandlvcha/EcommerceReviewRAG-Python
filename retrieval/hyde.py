@@ -9,6 +9,13 @@ HyDE 检索器 —— Hypothetical Document Embeddings
   生成一段包含'电池容量''充电速度''能用多久'的假想评论，再拿这段假评论的向量
   去搜。本质上是用 LLM 把用户口语转成规范文本，缩小 query 和文档之间的语义鸿沟。"
 """
+
+import sys
+from pathlib import Path as _Path
+_PROJECT_ROOT = _Path(__file__).parent.parent
+if str(_PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PROJECT_ROOT))
+
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from config import SEARCH_K, get_llm, get_embeddings
@@ -53,7 +60,7 @@ def hyde_retrieve(question: str, vectorstore, llm=None, k: int = SEARCH_K) -> li
 
 
 if __name__ == "__main__":
-    from vector_store import load_vectorstore
+    from retrieval.store import load_vectorstore
     vs = load_vectorstore()
     results = hyde_retrieve("外观好看吗", vs)
     print("\n--- HyDE 检索结果 ---")

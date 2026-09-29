@@ -5,7 +5,7 @@ Cross-Encoder 精排器
 和 embedding 的区别：Cross-Encoder 把 query 和 doc 拼在一起过 transformer，
                      逐字做 cross-attention，精度远高于向量距离
 
-模型：cross-encoder/ms-marco-MiniLM-L-6-v2（~80MB，CPU 可跑，每条 10-50ms）
+模型：BAAI/bge-reranker-base（中文 Cross-Encoder，~1GB，CPU 可跑）
 """
 from sentence_transformers import CrossEncoder
 
@@ -13,8 +13,8 @@ from sentence_transformers import CrossEncoder
 class Reranker:
     """Cross-Encoder 重排序器"""
 
-    def __init__(self, model_name: str = "cross-encoder/ms-marco-MiniLM-L-2-v2"):
-        """轻量精排（80MB，秒下）。URL 编码修好后中文检索也能用"""
+    def __init__(self, model_name: str = "BAAI/bge-reranker-base"):
+        """中文 Cross-Encoder 精排（BGE Reranker），替代英文 ms-marco 避免中文场景 Recall 倒挂"""
         self.model = CrossEncoder(model_name)
 
     def rerank(self, query: str, docs: list, top_k: int = 5) -> list:
@@ -36,8 +36,8 @@ class Reranker:
 
 
 if __name__ == "__main__":
-    from vector_store import load_vectorstore
-    from hybrid_retriever import hybrid_retrieve
+    from retrieval.store import load_vectorstore
+    from retrieval.hybrid import hybrid_retrieve
     from langchain_core.documents import Document
 
     vs = load_vectorstore()

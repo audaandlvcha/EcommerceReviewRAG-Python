@@ -1,3 +1,9 @@
+import sys
+from pathlib import Path as _Path
+_PROJECT_ROOT = _Path(__file__).parent.parent
+if str(_PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PROJECT_ROOT))
+
 import json
 import re
 from pathlib import Path
@@ -19,10 +25,10 @@ def load_reviews(filepath: Path | None = None) -> list[dict]:
 
 
 def split_into_opinions(text: str, min_length: int = MIN_CHUNK_LENGTH) -> list[str]:
-    # 第1步：统一标点
-    text = text.replace("!", "。").replace("?", "。").replace("～", "").replace("~", "")
-    # 第2步：按强分隔符切第一轮
-    sentences = re.split(r'[。！？\n]+', text)
+    # 第1步：清理无意义符号
+    text = text.replace("～", "").replace("~", "")
+    # 第2步：按强分隔符切第一轮（中英文句号、问号、感叹号、换行）
+    sentences = re.split(r'[。！？!?\n]+', text)
     # 第3步：每句再按弱分隔符切第二轮
     opinions = []
     for sent in sentences:
@@ -56,7 +62,7 @@ def build_opinion_chunks(
         reviews = load_reviews()
     #当用户想要看自定的"sentiment": "positive" 或 "negative" 标签使用
     if sentiment_filter:
-        reviews = [r for r in reviews if r['sentiment'] == sentiment_filter]
+        reviews = [r for r in reviews if r.get('sentiment', '') == sentiment_filter]
         print(f"过滤后保留 {len(reviews)} 条 {sentiment_filter} 评论")
     documents = []
     skipped = 0

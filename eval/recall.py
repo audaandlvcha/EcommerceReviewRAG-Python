@@ -8,12 +8,18 @@ Recall@5 评测 — 对比三种检索配置
 
 评测: LLM-as-judge 判断每条检索结果是否相关, 统计 Recall@5
 
-用法: python eval_recall.py
+用法: python eval/recall.py（从项目根目录运行）
+
+注意：此文件在子目录中，运行时需要把项目根目录加入 sys.path。
 """
 
 import os, sys, time
 from pathlib import Path
 from types import ModuleType
+
+# ── 确保项目根目录在 sys.path 中（文件在 eval/ 子目录下）──
+_PROJECT_ROOT = Path(__file__).parent.parent
+sys.path.insert(0, str(_PROJECT_ROOT))
 
 _m = ModuleType("langchain_community.chat_models.vertexai")
 _m.ChatVertexAI = type("ChatVertexAI", (), {})
@@ -21,7 +27,13 @@ sys.modules.setdefault("langchain_community.chat_models", ModuleType("langchain_
 sys.modules["langchain_community.chat_models.vertexai"] = _m
 
 from dotenv import load_dotenv
-load_dotenv(Path(__file__).parent / ".env")
+load_dotenv(_PROJECT_ROOT / ".env")
+
+# 确保离线模式（与 main.py / run.py 保持一致）
+# 设置多个环境变量以确保 transformers / sentence_transformers 完全离线
+for _key in ("HF_HUB_OFFLINE", "TRANSFORMERS_OFFLINE", "HF_DATASETS_OFFLINE"):
+    if not os.environ.get(_key):
+        os.environ[_key] = "1"
 
 from langchain_core.documents import Document
 from config import SEARCH_K, get_llm
@@ -75,7 +87,7 @@ def judge_relevance(query: str, docs: list, llm) -> list[bool]:
 
 def run_eval():
     print("[STEP] 加载向量库...")
-    from vector_store import load_vectorstore
+    from retrieval.store import load_vectorstore
     vs = load_vectorstore()
     raw = vs.get(include=["metadatas", "documents"])
     bm25_chunks = [
@@ -84,8 +96,8 @@ def run_eval():
     ]
     print(f"[OK] {len(bm25_chunks)} 个文档\n")
 
-    from hybrid_retriever import hybrid_retrieve
-    from reranker import Reranker
+    from retrieval.hybrid import hybrid_retrieve
+    from retrieval.reranker import Reranker
     reranker = Reranker()
 
     judge_llm = get_llm(temperature=0)

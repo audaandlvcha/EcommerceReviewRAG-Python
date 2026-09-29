@@ -7,9 +7,11 @@ from pathlib import Path
 from dotenv import load_dotenv
 load_dotenv(Path(__file__).parent / ".env")
 
-# ── 第二步：HuggingFace 离线模式（避免每次启动联网验证，中国网络 HF 不稳定） ──
-# 首次使用或换模型时临时注释掉这行
+# ── 第二步：HuggingFace 离线模式（多环境变量确保完全离线） ──
+# 首次使用或换模型时临时注释掉这些行
 os.environ["HF_HUB_OFFLINE"] = "1"
+os.environ["TRANSFORMERS_OFFLINE"] = "1"
+os.environ["HF_DATASETS_OFFLINE"] = "1"
 
 # ── 第三步：修复 SSL 证书问题 ──
 if "SSL_CERT_FILE" in os.environ:
@@ -19,4 +21,6 @@ if "SSL_CERT_FILE" in os.environ:
 import uvicorn
 
 if __name__ == "__main__":
-    uvicorn.run("web:app", host="0.0.0.0", port=8000, reload=False)
+    import os as _os
+    _port = int(_os.environ.get("PORT", "8000"))
+    uvicorn.run("web:app", host="0.0.0.0", port=_port, reload=False)

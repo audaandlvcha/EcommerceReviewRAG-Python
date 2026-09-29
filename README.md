@@ -13,25 +13,29 @@
 ```
 用户问题: "续航怎么样"
   │
-  ├─ ① MultiQuery: LLM 从 3 个角度重写查询（参数/体验/优缺点）
-  ├─ ② HyDE: LLM 生成假想评论 → 用假评论的向量去检索
-  ├─ ③ Hybrid: BM25 关键词 + 向量语义 → RRF 融合（召回 Top-20）
-  ├─ ④ Cross-Encoder: BAAI/bge-reranker-base 逐对精排（20→5）
-  └─ ⑤ LLM 汇总: 基于 5 条精选评论生成自然语言答案
+  ├─ ① IntentRouter: LLM 判断复杂度 → 决定开哪些增强（simple/medium/complex）
+  ├─ ② Conversation: 多轮对话检测 → 追问自动补全关键词
+  ├─ ③ MultiQuery: [可选] LLM 从 3 个角度重写查询（参数/体验/优缺点）
+  ├─ ④ HyDE: [可选] LLM 生成假想评论 → 用假评论的向量去检索
+  ├─ ⑤ Hybrid: BM25 关键词 + 向量语义 → RRF 融合（召回 Top-20）
+  ├─ ⑥ Cross-Encoder: ms-marco-MiniLM-L-2-v2 逐对精排（20→5）
+  ├─ ⑦ LLM 汇总: DeepSeek-chat 基于 5 条精选评论流式生成答案
+  └─ 🔍 Langfuse: 全链路追踪（可选）
 ```
 
 ## 技术栈
 
 | 层 | 技术 |
 |----|------|
-| LLM | Ollama + qwen3:8b（本地推理） |
-| Embedding | Ollama + nomic-embed-text |
+| LLM | DeepSeek API (deepseek-chat) |
+| Embedding | HuggingFace BAAI/bge-small-zh-v1.5（本地推理） |
 | 向量库 | ChromaDB |
 | 关键词检索 | BM25（rank-bm25） |
-| 精排 | BAAI/bge-reranker-base（Cross-Encoder） |
+| 精排 | cross-encoder/ms-marco-MiniLM-L-2-v2（Cross-Encoder） |
 | 编排 | LangChain LCEL |
 | API | FastAPI + SSE 流式 |
-| 评估 | RAGAS（Faithfulness / Answer Relevancy / Context Precision） |
+| 评估 | LLM-as-Judge（Faithfulness / Answer Relevancy 自研） |
+| 追踪 | Langfuse（全链路可观测） |
 | 数据 | ChineseNlpCorpus online_shopping_10_cats（2323 条手机评论） |
 
 ## 快速开始
@@ -40,36 +44,53 @@
 # 1. 安装依赖
 pip install -r requirements.txt
 
-# 2. 确保 Ollama 模型已安装
-ollama pull qwen3:8b
-ollama pull nomic-embed-text
+# 2. 配置 .env（DeepSeek API Key + Langfuse 可选）
+# DEEPSEEK_API_KEY=sk-xxx
+# LANGFUSE_PUBLIC_KEY=pk-xxx  （可选）
+# LANGFUSE_SECRET_KEY=sk-xxx   （可选）
 
-# 3. 启动
+# 3. 首次运行需下载 Embedding 模型（自动），或设置 HF_HUB_OFFLINE=1 使用本地缓存
+
+# 4. 构建向量库
+python -m retrieval.store
+
+# 5. 启动
 python main.py
 
-# 4. 浏览器打开
+# 6. 浏览器打开
 http://localhost:8000
 ```
 
 ## 项目结构
 
 ```
-EcommerceReviewRAG/
-├── main.py              # 入口
-├── config.py            # 配置集中
-├── review_loader.py     # 数据加载 + 观点级分块
-├── vector_store.py      # ChromaDB 建库/检索
-├── hyde_retriever.py    # HyDE：LLM生成假评论→向量检索
-├── multi_query.py       # MultiQuery：LLM多角度扩展
-├── hybrid_retriever.py  # BM25+向量混合检索 + RRF融合
-├── reranker.py          # Cross-Encoder 精排
-├── rag_pipeline.py      # 全链路组装
-├── evaluator.py         # RAGAS 自动化评估
-├── web.py               # FastAPI + SSE 流式
-├── static/
-│   └── index.html       # 前端页面
-└── data/
-    └── reviews.json     # 2323 条手机评论
+EcommerceReviewRAG_Plus/
+├── main.py                  # 入口（开发模式，热重载）
+├── run.py                   # 入口（生产模式）
+├── config.py                # 全局配置 + LLM/Embedding 工厂
+├── langfuse_setup.py        # Langfuse 全链路追踪
+├── web.py                   # FastAPI + SSE 真正流式
+├── requirements.txt
+├── .env                     # API Key 配置
+├── data/
+│   ├── loader.py            # 数据加载 + 观点级分块
+│   └── reviews.json         # 2323 条手机评论
+├── retrieval/
+│   ├── store.py             # ChromaDB 建库/检索
+│   ├── hyde.py              # HyDE：LLM生成假评论→向量检索
+│   ├── multi_query.py       # MultiQuery：LLM多角度扩展
+│   ├── hybrid.py            # BM25+向量混合检索 + RRF融合
+│   └── reranker.py          # Cross-Encoder 精排
+├── pipeline/
+│   ├── router.py            # 意图路由：按复杂度分级
+│   └── orchestrator.py      # 全链路编排
+├── conversation/
+│   └── manager.py           # 多轮对话 + 追问检测
+├── eval/
+│   ├── quality.py           # LLM-as-Judge 答案质量评估
+│   └── recall.py            # Recall@5 多配置对比
+└── static/
+    └── index.html           # 前端页面
 ```
 
 ## 和通用 RAG 的区别
@@ -80,7 +101,7 @@ EcommerceReviewRAG/
 | 检索对象 | 教科书/文档 | 用户口语评论 |
 | 查询增强 | 无/简单 | HyDE + MultiQuery 双重 LLM 增强 |
 | 检索方式 | 单路向量 | BM25 + 向量 → RRF → Cross-Encoder 两阶段 |
-| 评估 | 无/手动 | RAGAS 自动化三指标 |
+| 评估 | 无/手动 | LLM-as-Judge 自研（Faithfulness + Answer Relevancy + Recall） |
 | 核心挑战 | 知识覆盖面 | 口语短 query ↔ 长评论的语义鸿沟 |
 
 ## 关键技术决策
@@ -91,11 +112,11 @@ EcommerceReviewRAG/
 **2. 为什么 RRF 融合后还要 Cross-Encoder？**
 RRF 管召回（不错过），Cross-Encoder 管精度（不混入）。纯 RRF 结果混入了"菜单切换有延时"这种跑题结果，Cross-Encoder 逐字比对后能踢出去。
 
-**3. 为什么用 qwen3:8b 而不是 deepseek-r1:1.5b？**
-1.5b 对 few-shot 示例会照抄模板（问"定位"输出"屏幕"相关），换成 8b + 规则指令后完全纠正。
+**3. 为什么用 DeepSeek API 而不是本地 Ollama？**
+DeepSeek API 推理质量更高，中文理解好，无需本地 GPU 资源。通过 API 调用模式更适合生产环境部署。
 
-**4. 为什么 evaluator 不挂在主链路？**
-RAGAS 每次评估要调多次 LLM 当评委，比检索本身还慢。正确的用法是离线跑测试集，把平均分数写在 README 里。
+**4. 为什么评估脚本不挂在主链路？**
+LLM-as-Judge 每次评估要调多次 LLM 当评委，比检索本身还慢。正确的用法是离线跑测试集，把平均分数写在 README 里。
 
 ## API
 

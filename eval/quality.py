@@ -6,13 +6,25 @@ RAG 评测脚本 — LLM-as-Judge 评估（用 DeepSeek 代替 RAGAS）
   - Answer Relevancy: 答案是否直接回答问题
   - 延迟统计
 
-用法: python evaluator.py
+用法: python eval/quality.py（从项目根目录运行）
+
+注意：此文件在子目录中，运行时需要把项目根目录加入 sys.path。
 """
 
 import os, sys, time, json
 from pathlib import Path
+
+# ── 确保项目根目录在 sys.path 中（文件在 eval/ 子目录下）──
+_PROJECT_ROOT = Path(__file__).parent.parent
+sys.path.insert(0, str(_PROJECT_ROOT))
+
 from dotenv import load_dotenv
-load_dotenv(Path(__file__).parent / ".env")
+load_dotenv(_PROJECT_ROOT / ".env")
+
+# 确保离线模式（与 main.py / run.py 保持一致）
+for _key in ("HF_HUB_OFFLINE", "TRANSFORMERS_OFFLINE", "HF_DATASETS_OFFLINE"):
+    if not os.environ.get(_key):
+        os.environ[_key] = "1"
 
 from langchain_core.documents import Document
 from config import get_llm
@@ -91,10 +103,10 @@ def llm_judge_relevancy(query, answer, llm):
 
 def run_eval():
     print("[STEP] 初始化 RAG 管道...")
-    from vector_store import load_vectorstore
-    from rag_pipeline import RAGPipeline
-    from reranker import Reranker
-    from intent_router import IntentRouter
+    from retrieval.store import load_vectorstore
+    from pipeline.orchestrator import RAGPipeline
+    from retrieval.reranker import Reranker
+    from pipeline.router import IntentRouter
 
     vs = load_vectorstore()
     raw = vs.get(include=["metadatas", "documents"])

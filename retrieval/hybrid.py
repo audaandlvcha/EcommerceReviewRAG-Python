@@ -9,13 +9,18 @@ BM25 擅长：专有名词（"A17芯片""徕卡镜头"）、精确关键词匹�
 RRF (Reciprocal Rank Fusion): score = 1 / (k + rank)
   k=60 是经验值，让排名靠前的文档得分差距适中
 
-参考：production-rag 的 hybrid.py（学 RRF 公式，用自己的 LangChain BM25Retriever）
-
 面试怎么讲：
   "纯向量检索对专有名词不敏感——'骁龙8Gen3'这种词 embedding 没见过就是没见过。
   BM25 做关键词匹配正好补这个短板。两路检索用 RRF 融合——不在乎绝对分数，
   只在乎相对排名。语义路排第 1 和关键词路排第 3 的文档，最终得分可能差不多。"
 """
+
+import sys
+from pathlib import Path as _Path
+_PROJECT_ROOT = _Path(__file__).parent.parent
+if str(_PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PROJECT_ROOT))
+
 from langchain_community.retrievers import BM25Retriever
 from langchain_core.documents import Document
 from config import SEARCH_K
@@ -59,18 +64,18 @@ def hybrid_retrieve(
     semantic_docs = vectorstore.similarity_search(question, k=retrieve_k)
     bm25_docs = bm25_retriever.invoke(question)[:retrieve_k]
 
-    # 第3步：RRF 融合
+    # 第3步：RRF 融合（用 (content, review_id) 做 key，避免不同评论的相同文本互相覆盖）
     fused_scores = {}
 
     for rank, doc in enumerate(semantic_docs, 1):
-        key = doc.page_content
+        key = (doc.page_content, doc.metadata.get("review_id", ""))
         rrf_score = 1.0 / (k_rrf + rank)
         if key not in fused_scores:
             fused_scores[key] = {"doc": doc, "rrf_score": 0.0}
         fused_scores[key]["rrf_score"] += semantic_weight * rrf_score
 
     for rank, doc in enumerate(bm25_docs, 1):
-        key = doc.page_content
+        key = (doc.page_content, doc.metadata.get("review_id", ""))
         rrf_score = 1.0 / (k_rrf + rank)
         if key not in fused_scores:
             fused_scores[key] = {"doc": doc, "rrf_score": 0.0}
@@ -89,7 +94,7 @@ def hybrid_retrieve(
 
 
 if __name__ == "__main__":
-    from vector_store import load_vectorstore
+    from retrieval.store import load_vectorstore
     from langchain_core.documents import Document
 
     vs = load_vectorstore()

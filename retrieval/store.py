@@ -1,7 +1,14 @@
 """ChromaDB 向量库 —— 建库 + 检索"""
+
+import sys
+from pathlib import Path as _Path
+_PROJECT_ROOT = _Path(__file__).parent.parent
+if str(_PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PROJECT_ROOT))
+
 from langchain_chroma import Chroma
 from config import CHROMA_DIR, SEARCH_K, get_embeddings
-from review_loader import load_reviews, build_opinion_chunks
+from data.loader import load_reviews, build_opinion_chunks
 
 def build_vectorstore(chunks, collection_name: str = "phone_reviews"):
     print(f"--- 开始建向量库（{len(chunks)} 个观点块）---")

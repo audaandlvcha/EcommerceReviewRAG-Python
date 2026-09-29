@@ -6,6 +6,13 @@
   我加了对话管理器——维护会话历史，检测追问/指代（'那''它''还有'），
   把上一轮话题自动拼入当前 query 的检索上下文。"
 """
+
+import sys
+from pathlib import Path as _Path
+_PROJECT_ROOT = _Path(__file__).parent.parent
+if str(_PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PROJECT_ROOT))
+
 import json
 from pathlib import Path
 from datetime import datetime, timedelta
@@ -53,10 +60,11 @@ class ConversationManager:
             return
         self._last_cleanup = now
 
-        cutoff = (now - timedelta(minutes=self.ttl_minutes)).isoformat()
+        cutoff = now - timedelta(minutes=self.ttl_minutes)
+        cutoff_str = cutoff.isoformat()
         stale = [
             sid for sid, msgs in self.sessions.items()
-            if not msgs or msgs[-1]["time"] < cutoff
+            if not msgs or msgs[-1]["time"] < cutoff_str
         ]
         for sid in stale:
             del self.sessions[sid]
@@ -67,7 +75,8 @@ class ConversationManager:
                 self.sessions.keys(),
                 key=lambda s: self.sessions[s][-1]["time"] if self.sessions[s] else "0"
             )
-            for sid in sorted_sids[:len(self.sessions) - self.max_sessions]:
+            excess = len(self.sessions) - self.max_sessions
+            for sid in sorted_sids[:excess]:
                 del self.sessions[sid]
 
     def add_message(self, session_id: str, role: str, content: str):

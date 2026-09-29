@@ -5,7 +5,23 @@ FastAPI —— 搜索 API + SSE 流式 + 多轮对话
   POST /api/search              REST 检索（含 session 支持）
   GET  /api/search/stream       SSE 流式（含 session、对话上下文）
   GET  /                        前端页面（static/index.html）
+
+启动：python main.py / python run.py / python web.py 均可
 """
+# ── 必须在所有 import 之前加载 .env + 设离线模式 ──
+import os as _os
+from pathlib import Path as _Path
+from dotenv import load_dotenv
+load_dotenv(_Path(__file__).parent / ".env")
+
+for _key in ("HF_HUB_OFFLINE", "TRANSFORMERS_OFFLINE", "HF_DATASETS_OFFLINE"):
+    if not _os.environ.get(_key):
+        _os.environ[_key] = "1"
+
+if "SSL_CERT_FILE" in _os.environ:
+    del _os.environ["SSL_CERT_FILE"]
+# ──────────────────────────────────────────
+
 import json
 import uuid
 import asyncio
@@ -36,11 +52,11 @@ async def get_pipeline():
         if _pipeline is not None:
             return _pipeline
 
-        from vector_store import load_vectorstore
-        from rag_pipeline import RAGPipeline
-        from reranker import Reranker
-        from intent_router import IntentRouter
-        from conversation_manager import ConversationManager
+        from retrieval.store import load_vectorstore
+        from pipeline.orchestrator import RAGPipeline
+        from retrieval.reranker import Reranker
+        from pipeline.router import IntentRouter
+        from conversation.manager import ConversationManager
         from langfuse_setup import get_langfuse_callback
 
         _vectorstore = load_vectorstore()
@@ -73,6 +89,11 @@ async def search(request: Request):
     pipeline = await get_pipeline()
     conversation = _conversation
 
+    # 防御：确保 conversation 已初始化
+    if conversation is None:
+        from conversation.manager import ConversationManager
+        conversation = ConversationManager()
+
     # 多轮对话：检测追问 → 增强 query
     enriched = conversation.enrich_query(question, session_id)
 
@@ -102,7 +123,6 @@ async def search(request: Request):
 @app.get("/api/search/stream")
 async def search_stream(query: str = "", session_id: str = ""):
     if not query.strip():
-        # 返回 SSE 错误事件而不是 None（None 导致 FastAPI 500）
         async def error_gen():
             yield f"data: {json.dumps({'type': 'error', 'data': 'query 不能为空'})}\n\n"
             yield f"data: {json.dumps({'type': 'done'})}\n\n"
@@ -112,37 +132,48 @@ async def search_stream(query: str = "", session_id: str = ""):
         try:
             pipeline = await get_pipeline()
             conversation = _conversation
+            if conversation is None:
+                from conversation.manager import ConversationManager
+                conversation = ConversationManager()
 
             sid = session_id or str(uuid.uuid4())
 
-            # 立即返回状态，防止浏览器超时断开
+            # 多轮对话：检测追问 → 增强 query
+            enriched = conversation.enrich_query(query, sid)
+
+            # 先发状态
             yield f"data: {json.dumps({'type': 'status', 'data': '检索中...'})}\n\n"
 
-            # 多轮对话 + 意图路由 + 检索（用线程防止阻塞事件循环）
-            enriched = conversation.enrich_query(query, sid)
-            answer, docs = await asyncio.to_thread(
-                pipeline.query, enriched, True, True, True, SEARCH_K  # auto_route=True（第5个位置参数）
+            # 意图路由 + 检索 + 真正流式 LLM（用线程防阻塞事件循环）
+            final_docs, token_stream = await asyncio.to_thread(
+                pipeline.stream_query, enriched, auto_route=True
             )
 
-            # 记录对话历史
+            # 记录对话历史（先记用户问题）
             conversation.add_message(sid, "user", query)
-            conversation.add_message(sid, "assistant", answer)
 
-            # 先发 session_id + 引用
+            # 发 session_id + enriched_query
             yield f"data: {json.dumps({'type': 'meta', 'session_id': sid, 'enriched_query': enriched if enriched != query else None}, ensure_ascii=False)}\n\n"
 
+            # 发引用来源
             sources = [
                 {
                     "content": doc.page_content,
                     "sentiment": doc.metadata.get("sentiment", ""),
                     "rating": doc.metadata.get("rating", 0),
                 }
-                for doc in docs
+                for doc in final_docs
             ]
             yield f"data: {json.dumps({'type': 'sources', 'data': sources}, ensure_ascii=False)}\n\n"
 
-            for char in answer:
-                yield f"data: {json.dumps({'type': 'token', 'data': char}, ensure_ascii=False)}\n\n"
+            # 真正流式：逐 token 发送
+            answer = ""
+            for token in token_stream:
+                answer += token
+                yield f"data: {json.dumps({'type': 'token', 'data': token}, ensure_ascii=False)}\n\n"
+
+            # 记录完整回答
+            conversation.add_message(sid, "assistant", answer)
 
             yield f"data: {json.dumps({'type': 'done'})}\n\n"
         except Exception as e:
@@ -160,4 +191,19 @@ async def index():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    import os as _os
+    from pathlib import Path as _Path
+
+    # 与 main.py / run.py 保持一致：加载 .env + 离线模式
+    from dotenv import load_dotenv
+    load_dotenv(_Path(__file__).parent / ".env")
+
+    for _key in ("HF_HUB_OFFLINE", "TRANSFORMERS_OFFLINE", "HF_DATASETS_OFFLINE"):
+        if not _os.environ.get(_key):
+            _os.environ[_key] = "1"
+
+    if "SSL_CERT_FILE" in _os.environ:
+        del _os.environ["SSL_CERT_FILE"]
+
+    _port = int(_os.environ.get("PORT", "8000"))
+    uvicorn.run(app, host="0.0.0.0", port=_port)

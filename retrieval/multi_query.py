@@ -13,6 +13,13 @@
   一次检索容易漏掉某个维度。我用 LLM 把问题重写成三个不同角度的查询，分别检索
   后合并去重——召回率比单次检索高很多。"
 """
+
+import sys
+from pathlib import Path as _Path
+_PROJECT_ROOT = _Path(__file__).parent.parent
+if str(_PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PROJECT_ROOT))
+
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from config import SEARCH_K, get_llm
@@ -84,7 +91,7 @@ def multi_query_retrieve(question: str, vectorstore, llm=None, n: int = 3, k: in
 
 
 if __name__ == "__main__":
-    from vector_store import load_vectorstore
+    from retrieval.store import load_vectorstore
     vs = load_vectorstore()
     results = multi_query_retrieve("外观好看吗", vs)
     print("\n--- MultiQuery 检索结果 ---")

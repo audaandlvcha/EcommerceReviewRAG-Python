@@ -65,12 +65,11 @@
     <div>
         <h3>系统信息</h3>
         <div class="info-grid">
-            <div class="row"><span class="label">模型</span><span>qwen3:8b</span></div>
-            <div class="row"><span class="label">Embedding</span><span>nomic-embed-text</span></div>
-            <div class="row"><span class="label">精排</span><span>BAAI/bge-reranker</span></div>
-            <div class="row"><span class="label">数据量</span><span>2323条评论</span></div>
-            <div class="row"><span class="label">分块数</span><span>12844个观点</span></div>
-            <div class="row"><span class="label">状态</span><span id="status">✅ 就绪</span></div>
+            <div class="row"><span class="label">LLM</span><span>DeepSeek-chat</span></div>
+            <div class="row"><span class="label">Embedding</span><span>BAAI/bge-small-zh</span></div>
+            <div class="row"><span class="label">精排</span><span>ms-marco-MiniLM</span></div>
+            <div class="row"><span class="label">数据量</span><span id="info-count">加载中...</span></div>
+            <div class="row"><span class="label">状态</span><span id="status">⏳ 启动中</span></div>
         </div>
     </div>
 
@@ -89,7 +88,7 @@
     <div>
         <h3>检索链路</h3>
         <p style="font-size:12px;color:#999;line-height:1.8;">
-        ① 意图路由 → ② 多轮对话 → ③ MultiQuery → ④ HyDE → ⑤ BM25+向量RRF → ⑥ Cross-Encoder精排 → ⑦ LLM汇总
+        ① 意图路由 → ② 多轮对话 → ③ MultiQuery → ④ HyDE → ⑤ BM25+向量 RRF → ⑥ Cross-Encoder 精排 → ⑦ LLM 汇总
         </p>
     </div>
 

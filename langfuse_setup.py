@@ -1,5 +1,5 @@
 """
-Langfuse 全链路追踪（v4.x API）
+Langfuse 全链路追踪（v3.x+ API）
 
 面试怎么讲：
   "两个项目统一了可观测性方案——Langfuse 追踪每次检索的延迟、token 消耗、
@@ -16,26 +16,25 @@ import os
 from pathlib import Path
 
 try:
-    from langfuse.langchain import CallbackHandler
+    # langfuse v3+ 的正确导入路径
+    from langfuse.callback.langchain import CallbackHandler
     _HAS_LANGFUSE = True
 except ImportError:
-    _HAS_LANGFUSE = False
-    CallbackHandler = None  # 类型占位，无 langfuse 时优雅降级
-
-# 启动时自动从 .env 加载环境变量
-_ENV_FILE = Path(__file__).parent / ".env"
-if _ENV_FILE.exists():
-    for line in _ENV_FILE.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if line and not line.startswith("#") and "=" in line:
-            key, _, val = line.partition("=")
-            os.environ.setdefault(key.strip(), val.strip())
-    print(f"[Langfuse] 已加载 {_ENV_FILE}")
+    try:
+        # langfuse v2 的旧路径兼容
+        from langfuse.langchain import CallbackHandler
+        _HAS_LANGFUSE = True
+    except ImportError:
+        _HAS_LANGFUSE = False
+        CallbackHandler = None  # 类型占位，无 langfuse 时优雅降级
 
 
-def get_langfuse_callback(session_id: str = None, tags: list[str] = None) -> CallbackHandler | None:
+def get_langfuse_callback(session_id: str = None, tags: list[str] = None):
     """
     获取 Langfuse callback — 未安装/未配置时静默降级，不影响系统运行
+
+    langfuse v4.x: CallbackHandler 从环境变量自动读取
+    LANGFUSE_PUBLIC_KEY + LANGFUSE_SECRET_KEY
     """
     if not _HAS_LANGFUSE:
         return None
@@ -46,10 +45,22 @@ def get_langfuse_callback(session_id: str = None, tags: list[str] = None) -> Cal
     if not public_key or not secret_key:
         return None
 
-    return CallbackHandler(public_key=public_key)
+    try:
+        # langfuse v4: public_key 必传，secret_key 从环境变量自动读取
+        kwargs = {"public_key": public_key}
+        if session_id:
+            kwargs["session_id"] = session_id
+        if tags:
+            kwargs["tags"] = tags
+        return CallbackHandler(**kwargs)
+    except Exception:
+        return None
 
 
 if __name__ == "__main__":
+    from dotenv import load_dotenv
+    load_dotenv(Path(__file__).parent / ".env")
+
     cb = get_langfuse_callback()
     if cb:
         print("[Langfuse] 追踪已启用")
